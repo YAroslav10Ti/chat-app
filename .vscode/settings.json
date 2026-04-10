@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "/Users/yaroslavtitov10gmail.com/Desktop/работа/Портфолио/chat-app/backend/venv/bin/python",
+  "python.analysis.extraPaths": [
+    "/Users/yaroslavtitov10gmail.com/Desktop/работа/Портфолио/chat-app/backend"
+  ]
+}
