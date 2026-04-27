@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FastAPI Chat</title>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f4f6f8;
+      margin: 0;
+      padding: 30px;
+      color: #222;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+
+    h1, h3 {
+      margin-top: 0;
+    }
+
+    .block {
+      margin-bottom: 24px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    input, button {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+
+    input {
+      flex: 1;
+      min-width: 180px;
+    }
+
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    button.secondary {
+      background: #475569;
+    }
+
+    button.secondary:hover {
+      background: #334155;
+    }
+
+    .status {
+      font-size: 14px;
+      color: #555;
+      margin: 6px 0 0;
+    }
+
+    #rooms {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .room {
+      padding: 10px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #messages {
+      height: 320px;
+      overflow-y: auto;
+      background: #f9fafb;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .message {
+      background: #e8f0ff;
+      padding: 10px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+    }
+
+    .meta {
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 4px;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>FastAPI Chat</h1>
+
+    <div class="block">
+      <h3>1. Аккаунт</h3>
+
+      <div class="row">
+        <input id="username" placeholder="username" />
+        <input id="password" type="password" placeholder="password" />
+        <button onclick="register()">Register</button>
+        <button onclick="login()">Login</button>
+      </div>
+
+      <p class="status" id="authStatus">Не авторизован</p>
+    </div>
+
+    <div class="block">
+      <h3>2. Комнаты</h3>
+
+      <div class="row">
+        <input id="roomName" placeholder="Название комнаты" />
+        <button onclick="createRoom()">Create room</button>
+        <button class="secondary" onclick="loadRooms()">Refresh rooms</button>
+      </div>
+
+      <div id="rooms"></div>
+    </div>
+
+    <div class="block">
+      <h3>3. Чат</h3>
+
+      <p class="status" id="currentRoomStatus">Комната не выбрана</p>
+      <p class="status" id="wsStatus">WebSocket не подключён</p>
+
+      <div id="messages"></div>
+
+      <div class="row">
+        <input id="messageInput" placeholder="Введите сообщение" />
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let token = null;
+    let ws = null;
+    let currentRoomId = null;
+
+    const API_URL = "http://127.0.0.1:8000";
+    const WS_URL = "ws://127.0.0.1:8000";
+
+    function setText(id, text) {
+      document.getElementById(id).textContent = text;
+    }
+
+    async function register() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+
+      if (!username || !password) {
+        setText("authStatus", "Введите username и password");
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        setText("authStatus", error.detail || "Ошибка регистрации");
+        return;
+      }
+
+      setText("authStatus", "Регистрация успешна. Теперь нажми Login.");
+    }
+
+    async function login() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+
+      if (!username || !password) {
+        setText("authStatus", "Введите username и password");
+        return;
+      }
+
+      const formData = new URLSearchParams();
+      formData.append("username", username);
+      formData.append("password", password);
+
+      const response = await fetch(`${API_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        setText("authStatus", "Ошибка логина");
+        return;
+      }
+
+      const data = await response.json();
+      token = data.access_token;
+
+      setText("authStatus", "Авторизован");
+      await loadRooms();
+    }
+
+    async function createRoom() {
+      if (!token) {
+        alert("Сначала нужно залогиниться");
+        return;
+      }
+
+      const name = document.getElementById("roomName").value.trim();
+
+      if (!name) {
+        alert("Введите название комнаты");
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/rooms`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ name })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        alert(error.detail || "Ошибка создания комнаты");
+        return;
+      }
+
+      document.getElementById("roomName").value = "";
+      await loadRooms();
+    }
+
+    async function loadRooms() {
+      if (!token) {
+        alert("Сначала нужно залогиниться");
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/rooms`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        alert("Ошибка загрузки комнат");
+        return;
+      }
+
+      const rooms = await response.json();
+      renderRooms(rooms);
+    }
+
+    function renderRooms(rooms) {
+      const roomsBlock = document.getElementById("rooms");
+      roomsBlock.innerHTML = "";
+
+      if (!rooms.length) {
+        roomsBlock.innerHTML = "<p class='status'>Комнат пока нет</p>";
+        return;
+      }
+
+      rooms.forEach(room => {
+        const div = document.createElement("div");
+        div.className = "room";
+
+        div.innerHTML = `
+          <div>
+            <strong>${room.name}</strong>
+            <div class="status">id: ${room.id}</div>
+          </div>
+          <button onclick="connectToRoom(${room.id}, '${room.name}')">Connect</button>
+        `;
+
+        roomsBlock.appendChild(div);
+      });
+    }
+
+    async function connectToRoom(roomId, roomName) {
+      if (!token) {
+        alert("Сначала нужно залогиниться");
+        return;
+      }
+
+      if (ws) {
+        ws.close();
+      }
+
+      currentRoomId = roomId;
+      setText("currentRoomStatus", `Выбрана комната: ${roomName} (id: ${roomId})`);
+      setText("wsStatus", "Подключение...");
+      document.getElementById("messages").innerHTML = "";
+
+      await loadMessages(roomId);
+
+      ws = new WebSocket(`${WS_URL}/ws/rooms/${roomId}?token=${token}`);
+
+      ws.onopen = () => {
+        setText("wsStatus", "WebSocket подключён");
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        addMessage(data);
+      };
+
+      ws.onclose = () => {
+        setText("wsStatus", "WebSocket отключён");
+      };
+
+      ws.onerror = () => {
+        setText("wsStatus", "Ошибка WebSocket");
+      };
+    }
+
+    async function loadMessages(roomId) {
+      const response = await fetch(`${API_URL}/rooms/${roomId}/messages`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        alert("Ошибка загрузки сообщений");
+        return;
+      }
+
+      const messages = await response.json();
+      messages.forEach(addMessage);
+    }
+
+    function sendMessage() {
+      const input = document.getElementById("messageInput");
+      const text = input.value.trim();
+
+      if (!text) return;
+
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert("WebSocket не подключён");
+        return;
+      }
+
+      ws.send(text);
+      input.value = "";
+    }
+
+    function addMessage(data) {
+      const messages = document.getElementById("messages");
+
+      const div = document.createElement("div");
+      div.className = "message";
+
+      const username = data.username || `user_id: ${data.user_id}`;
+
+      div.innerHTML = `
+        <div class="meta">${username} • ${data.created_at}</div>
+        <div>${data.text}</div>
+      `;
+
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+  </script>
+</body>
+</html>

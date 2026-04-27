@@ -5,6 +5,8 @@ from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconn
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import jwt, JWTError
 
+from fastapi.responses import FileResponse
+
 from database import Base, engine, SessionLocal
 from models import User, Room, Message
 from schemas import (
@@ -34,6 +36,7 @@ Base.metadata.create_all(bind=engine)
 @app.get("/")
 def read_root():
     return {"message": "Hello, chat app!"}
+
 
 
 @app.post("/register", response_model=RegisterResponse)
@@ -233,3 +236,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: int, token: str):
 
     finally:
         db.close()
+
+
+
+@app.get("/chat")
+def chat():
+    return FileResponse("chat.html")
